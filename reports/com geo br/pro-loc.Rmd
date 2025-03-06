@@ -1,0 +1,409 @@
+---
+title: "Problemas de Localização"
+output: 
+  html_document:
+    css: "estilo.css"
+    includes:
+      in_header: "headers.html"
+---
+
+<div class="container">
+
+# Introdução
+
+O problema de Localização de Instalações faz parte da classe de problemas de Programação Linear Inteira Mista (PLIM), conhecidos como **Location/Allocation Problems**. 
+
+Com aplicação nas diversas áreas do conhecimento, esta página dedica-se às aplicações em instalações de serviços públicos de saúde.
+
+#P-centro
+
+Dados:
+• I: Conjunto de pontos de demanda.
+
+• J: Conjunto de pontos em potencial para localização dos centros.
+
+• p: Número fixo de centros a serem localizados.
+
+• dij : Distância entre o ponto de demanda i ∈ I e o ponto potencial de
+centro j ∈ J.
+
+Variáveis de Decisão:
+
+• yj : Variável binária que indica se um centro é localizado no ponto j ∈ J
+(1 se o centro é localizado, 0 caso contrário).
+
+• xij : Variável binária que indica se a instalação i é escolhida como um
+centro. xij = 1 se a instalação i for selecionada, xij = 0 caso contrário.
+
+• z: Maior distância entre um ponto de demanda e seu centro mais próximo.
+Função Objetivo:
+
+Minimizar a maior distância entre um ponto de demanda e seu centro mais
+próximo:
+
+## Modelo Matemático
+
+O modelo pode ser descrito da seguinte forma:
+
+$$
+\begin{aligned}
+\text{Minimizar} \quad & w = d_{\max} \\
+\text{Sujeito a:} \quad & \sum_{j} Y_{ij} = 1, \quad i = 1,2, \dots, n \quad (1) \\
+& \sum_{j} X_j = p, \quad i = 1,2, \dots, n \quad (2) \\
+& Y_{ij} \leq X_j, \quad \text{Para todo } i \text{ e } j \quad (3) \\
+& w \geq \sum_{j} d_{ij} Y_{ij} \quad (4) \\
+& X_j \in \{0,1\} \quad (5) \\
+& Y_{ij} \in \{0,1\} \quad (6) 
+\end{aligned}
+$$
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE, fig.align = "center")
+
+library(lpSolve)
+library(geobr)
+library(sf)
+library(ggplot2)
+library(knitr)
+```
+```{r leitura_dados}
+bairros <- read_neighborhood(year = 2022)
+bairros_itacoatiara <- bairros[bairros$code_muni == 1301902, ] 
+
+if (nrow(bairros_itacoatiara) == 0) {
+  stop("Não foram encontrados bairros para Itacoatiara-AM")
+}
+```
+
+```{r calculo_distancias}
+coords <- st_centroid(bairros_itacoatiara$geom)
+coords_matrix <- st_coordinates(coords) # Converter para matriz numérica
+
+dist_matrix <- as.matrix(dist(coords_matrix))
+
+# Parâmetros do problema
+p <- 5  # Número de postos
+n <- nrow(bairros_itacoatiara)  # Número de bairros
+
+# Introduzir variável para a distância máxima (C)
+# C será a distância máxima de qualquer bairro até o posto mais próximo
+# Variável C é a que queremos minimizar
+
+obj <- c(rep(0, n * n), rep(1, n))
+
+#0 para as variáveis Xij(bairro é atendido?) porque não influenciam diretamente na distancia max
+#1 para a variável C
+
+# Restrições de atendimento: 
+#Cada bairro deve ser atendido por pelo menos um posto
+A1 <- matrix(0, n, n * n + n)
+for (i in 1:n) {
+  A1[i, ((i - 1) * n + 1):(i * n)] <- 1
+}
+b1 <- rep(1, n)
+
+# Restrições de cobertura: Um bairro só pode atender outro se for um posto
+A2 <- matrix(0, n * n, n * n + n)
+for (i in 1:n) {
+  for (j in 1:n) {
+    idx <- (i - 1) * n + j
+    A2[idx, idx] <- 1
+    A2[idx, n * n + j] <- -1
+  }
+}
+b2 <- rep(0, n * n)
+
+# Restrições para limitar a distância máxima (C)
+A3 <- matrix(0, n * n, n * n + n)
+for (i in 1:n) {
+  for (j in 1:n) {
+    idx <- (i - 1) * n + j
+    A3[idx, idx] <- 1
+    A3[idx, n * n + j] <- -1
+  }
+}
+b3 <- rep(0, n * n)
+
+# Restrição: Exatamente p postos devem ser instalados
+A4 <- matrix(0, 1, n * n + n)
+A4[1, (n * n + 1):(n * n + n)] <- 1
+b4 <- p
+
+# Combina todas as restrições
+A <- rbind(A1, A2, A3, A4)
+dir <- c(rep("=", n), rep("<=", n * n), rep("<=", n * n), "=")
+b <- c(b1, b2, b3, b4)
+```
+
+```{r resolucao_modelo}
+resultado <- lp("min", obj, A, dir, b, all.bin = TRUE)
+
+# Verificar o status da solução
+if (resultado$status == 0) {
+  cat("Solução encontrada!\n")
+  # Extrair resultados
+  solucao <- resultado$solution
+  y <- solucao[(n * n + 1):(n * n + n)]  # Variáveis y_j
+  postos_selecionados <- which(y == 1)
+  bairros_selecionados <- bairros_itacoatiara$name_neighborhood[postos_selecionados]
+  cat("Os postos devem ser instalados nos bairros com os seguintes IDs:\n")
+  print(bairros_selecionados)
+  
+  # Adicionar uma coluna para indicar se o bairro foi selecionado
+  bairros_itacoatiara$selected <- ifelse(1:nrow(bairros_itacoatiara) %in% postos_selecionados, "Selected", "Not Selected")
+  
+  # Plotar o resultado
+  ggplot() +
+    geom_sf(data = bairros_itacoatiara, aes(fill = selected), color = "black") +
+    scale_fill_manual(values = c("Selected" = "blue", "Not Selected" = "lightgrey")) +
+    labs(title = "Localização dos Postos de Saúde (p-Centro)",
+         fill = "Status") +
+    theme_minimal()
+  
+} else {
+  cat("Não foi possível encontrar uma solução.\n")
+}
+```
+
+#P-mediana
+
+$$
+\tiny
+\text{Minimizar} \quad \sum_{i \in I} \sum_{j \in J} d_{ij} x_{ij}
+$$
+
+Sujeito a:
+
+$$
+\tiny
+\sum_{j \in J} x_{ij} = 1 \quad \forall i \in I
+$$
+
+$$
+\tiny
+x_{ij} \leq y_j \quad \forall i \in I, j \in J
+$$
+
+$$
+\tiny
+\sum_{j \in J} y_j = p
+$$
+
+$$
+\tiny
+x_{ij}, y_j \in \{0,1\}
+$$
+
+1. Váriaveis de Decisão
+
+• xij : Variável binária que indica se a instalação i é escolhida como uma mediana. xij = 1 se a instalação i for selecionada, xij = 0 caso contrário.
+
+• yij : Variável binária que indica se a demanda no ponto j é atendida pela instalação i. yij = 1 se a demanda j for atendida pelo centro i, yij = 0 caso contrário.
+
+2. Parâmetros
+
+• I: Conjunto de locais dos clientes, onde i ∈ I.
+
+• J: Conjunto de locais candidatos para instala¸c˜ao das medianas, onde j ∈ J.
+
+• dij : Distância entre o cliente i e o local j.
+
+Função Objetivo
+
+Busca minimizar a soma ponderada das distâncias entre os pontos de demanda e os centros
+
+3. Restrições
+ 
+Cada cliente deve ser atendido por exatamente um local
+
+Um cliente s´o pode ser atendido por um local com uma mediana instalada
+
+Exatamente p medianas devem ser instaladas
+``` {r p-mediana}
+library(lpSolve)
+library(geobr)
+library(sf)
+
+# Carregar os dados dos bairros de Itacoatiara, Amazonas
+bairros <- read_neighborhood(year = 2022) # Carrega todos os bairros do Brasil
+bairros_itacoatiara <- bairros[bairros$code_muni == 1301902, ] # Filtro para Itacoatiara-AM
+
+# Verificar se os dados foram carregados corretamente
+if (nrow(bairros_itacoatiara) == 0) {
+  stop("Não foram encontrados bairros para Itacoatiara-AM no geobr.")
+}
+
+# Obter os centróides dos bairros
+coords <- st_centroid(bairros_itacoatiara$geom)
+coords_matrix <- st_coordinates(coords) # Converter para matriz numérica
+
+# Criar matriz de distâncias euclidianas
+dist_matrix <- as.matrix(dist(coords_matrix))
+
+p <- 3  # Número de postos a instalar
+n <- nrow(bairros_itacoatiara)  # Número de bairros
+
+obj <- c(as.vector(dist_matrix), rep(0, n))
+
+# Restrições de atendimento
+A1 <- matrix(0, n, n * n + n)
+for (i in 1:n) {
+  A1[i, ((i - 1) * n + 1):(i * n)] <- 1
+}
+b1 <- rep(1, n)
+
+# Restrições de cobertura
+A2 <- matrix(0, n * n, n * n + n)
+for (i in 1:n) {
+  for (j in 1:n) {
+    idx <- (i - 1) * n + j
+    A2[idx, idx] <- 1
+    A2[idx, n * n + j] <- -1
+  }
+}
+b2 <- rep(0, n * n)
+
+# Restrição: Exatamente p postos devem ser instalados
+A3 <- matrix(0, 1, n * n + n)
+A3[1, (n * n + 1):(n * n + n)] <- 1
+b3 <- p
+
+# Combina as restrições
+A <- rbind(A1, A2, A3)
+dir <- c(rep("=", n), rep("<=", n * n), "=")
+b <- c(b1, b2, b3)
+
+# Resolver o problema
+resultado <- lp("min", obj, A, dir, b, all.bin = TRUE)
+
+if (resultado$status == 0) {
+  cat("Solução encontrada\n")
+  solucao <- resultado$solution
+  y <- solucao[(n * n + 1):(n * n + n)]
+  postos_selecionados <- which(y == 1)
+  bairros_selecionados <- bairros_itacoatiara$name_neighborhood[postos_selecionados]
+  cat("Os postos devem ser instalados nos seguintes bairros:\n")
+  print(bairros_selecionados)
+  
+  # Adicionar uma coluna para indicar se o bairro foi selecionado
+  bairros_itacoatiara$selected <- ifelse(1:nrow(bairros_itacoatiara) %in% postos_selecionados, "Selected", "Not Selected")
+  
+  # Plotar o resultado
+  ggplot() +
+    geom_sf(data = bairros_itacoatiara, aes(fill = selected), color = "black") +
+    scale_fill_manual(values = c("Selected" = "blue", "Not Selected" = "lightgrey")) +
+    labs(title = "Localização dos Postos de Saúde (p-Centro)",
+         fill = "Status") +
+    theme_minimal()
+} else {
+  cat("Não foi possível encontrar uma solução possível\n")
+}
+```
+
+#Cobertura de conjuntos
+
+1 Dados do Problema
+• I: Conjunto de pontos de demanda (clientes), I = {1, 2, . . . , n}.
+
+• J: Conjunto de pontos potenciais para localização dos centros, J = {1, 2, . . . , m}.
+
+• p: Número fixo de centros a serem localizados.
+
+• dij : Distância entre o ponto de demanda i ∈ I e o ponto potencial de centro j ∈ J.
+
+• R: Distância máxima permitida para um cliente ser coberto por um centro.
+
+2. Variáveis de Decisão
+
+• yj : Variável binária que indica se um centro é localizado no ponto j ∈ J (1 se o centro é localizado,0 caso contrário).
+
+• xij : Variável binária que indica se a demanda i ∈ I é atendida pelo centro localizado em j ∈ J (1 se atendido, 0 caso contrário).
+
+3. Função Objetivo
+
+A função objetivo é minimizar o custo total de atendimento:
+
+4. Restrições do Modelo
+
+O modelo de cobertura de conjuntos envolve as seguintes restrições:
+
+Restrição de localização O número total de centros localizados deve ser igual a p:
+
+Cobertura de clientes Cada cliente deve ser atendido por pelo menos um centro dentro da distância R
+
+Vinculação entre designação e localização: Se um cliente i é atendido pelo centro j, então o centro deve estar localizado:
+
+## Modelo Matemático
+
+O modelo pode ser descrito da seguinte forma:
+
+$$
+\begin{aligned}
+\text{Min } z &= \sum_{j \in N} y_j \quad (1) \\
+\text{s.a. } \quad & \sum_{j \in N} a_{ij} y_j \geq 1, \quad i,j \in N \quad (2) \\
+& y_j \in \{0,1\}, \quad j \in N \quad (3)
+\end{aligned}
+$$
+
+
+
+```{r cobertura de conjuntos}
+library(lpSolve)
+library(geobr)
+library(sf)
+library(units)
+library(ggplot2)
+
+resolver_matrix_cobertura_conjuntos <- function(R_max_km) {
+  bairros <- read_neighborhood(year = 2022)
+  bairros_itacoatiara <- bairros[bairros$code_muni == 1301902, ] 
+  
+  centroids <- st_centroid(bairros_itacoatiara)
+  
+  # Criar matriz de distâncias geodésicas (em km)
+  dist_matrix <- st_distance(centroids, centroids)
+  dist_matrix <- set_units(dist_matrix, "km")
+  dist_matrix <- drop_units(dist_matrix)  # Remover unidades para cálculos
+  
+  # Criar matriz de cobertura (1 se está dentro do raio, 0 caso contrário)
+  matrix_cobertura <- ifelse(dist_matrix <= R_max_km, 1, 0)
+  
+  n <- nrow(bairros_itacoatiara)
+  var_decisao <- n
+  
+  # Função objetivo: minimizar o número de postos
+  obj <- rep(1, var_decisao)
+  
+  # Restrição: cada bairro deve ser coberto por pelo menos um posto
+  A <- matrix_cobertura
+  b <- rep(1, n)  # Cada bairro deve ter pelo menos um posto
+  dir <- rep(">=", n)  # Restrição da cobertura
+  
+  # Resolver o problema
+  resultado <- lp("min", obj, A, dir, b, all.bin = TRUE)
+  
+  if (resultado$status == 0) {
+    cat("Solução encontrada com sucesso!\n")
+    solucao <- resultado$solution
+    postos_selecionados <- which(solucao == 1)
+    bairros_selecionados <- bairros_itacoatiara$name_neighborhood[postos_selecionados]
+    cat("Os postos devem ser instalados nos bairros:\n")
+    print(bairros_selecionados)
+    
+    bairros_itacoatiara$selected <- ifelse(1:nrow(bairros_itacoatiara) %in% postos_selecionados, "Selected", "Not Selected")
+    
+    ggplot() +
+      geom_sf(data = bairros_itacoatiara, aes(fill = selected), color = "black") +
+      scale_fill_manual(values = c("Selected" = "yellow", "Not Selected" = "lightgrey")) +
+      labs(title = "Localização dos Postos de Saúde",
+           fill = "Status") +
+      theme_minimal()
+  } else {
+    cat("Não foi possível encontrar uma solução.\n")
+  }
+}
+
+resolver_matrix_cobertura_conjuntos(5)
+```
