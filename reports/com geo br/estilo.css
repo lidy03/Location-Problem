@@ -46,19 +46,25 @@ header {
     margin-bottom: 20px;
 }
 
+h1.title {
+    color: #0056b3;
+    font-size: 30px;
+    margin-left: 180px;
+}
 /* Ajustando os títulos */
 h1 {
-    color: #222;
+    color: #0056b3;
     font-size: 2em;
-    margin-top: 20px;
+    margin-top: 10px;
 }
 
 h2 {
-    color: #444;
+    color: #0056b3;
     font-size: 1em;
 }
 
 p {
     font-size: 1.2em;
-    color: #666;
+    color: #444;
+    text-align: justify;
 }

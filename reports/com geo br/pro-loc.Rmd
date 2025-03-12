@@ -15,37 +15,12 @@ O problema de Localização de Instalações faz parte da classe de problemas de
 
 Com aplicação nas diversas áreas do conhecimento, esta página dedica-se às aplicações em instalações de serviços públicos de saúde.
 
-#P-centro
+**#P-centro**
 
-Dados:
-• I: Conjunto de pontos de demanda.
-
-• J: Conjunto de pontos em potencial para localização dos centros.
-
-• p: Número fixo de centros a serem localizados.
-
-• dij : Distância entre o ponto de demanda i ∈ I e o ponto potencial de
-centro j ∈ J.
-
-Variáveis de Decisão:
-
-• yj : Variável binária que indica se um centro é localizado no ponto j ∈ J
-(1 se o centro é localizado, 0 caso contrário).
-
-• xij : Variável binária que indica se a instalação i é escolhida como um
-centro. xij = 1 se a instalação i for selecionada, xij = 0 caso contrário.
-
-• z: Maior distância entre um ponto de demanda e seu centro mais próximo.
-Função Objetivo:
-
-Minimizar a maior distância entre um ponto de demanda e seu centro mais
-próximo:
-
-## Modelo Matemático
-
-O modelo pode ser descrito da seguinte forma:
+O modelo p-centro tem como principal objetivo minimizar a maior distância entre paciente e a instalação. Este modelo assegura que a distância máxima percorrida para chegar à instalação seja a menor possível e considera restrições baseadas nos critérios de otimização, observadas na formulação matemática a seguir proposta por Losso et al. (2018).
 
 $$
+\tiny
 \begin{aligned}
 \text{Minimizar} \quad & w = d_{\max} \\
 \text{Sujeito a:} \quad & \sum_{j} Y_{ij} = 1, \quad i = 1,2, \dots, n \quad (1) \\
@@ -56,28 +31,24 @@ $$
 & Y_{ij} \in \{0,1\} \quad (6) 
 \end{aligned}
 $$
+Nesta formulação dmax é a distancia entre a demanda e a facilidade; d_[ij]  é a é a matriz de distâncias; p é o número de instalações que se deseja alocar; x_j é a variável binária que indica a participação na solução; Y_ij deve ser igual a 1 caso a demanda seja atendida por uma instalação e 0 caso contrario.
 
+A seguir observa-se o código baseado em p-centro,desenvolvido em linguagem R,para definir melhores pontos de instalação de serviços de saúde.
 
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE, fig.align = "center")
+```{r p-centro, warning=FALSE, message=FALSE}
 
 library(lpSolve)
 library(geobr)
 library(sf)
 library(ggplot2)
 library(knitr)
-```
-```{r leitura_dados}
+
 bairros <- read_neighborhood(year = 2022)
 bairros_itacoatiara <- bairros[bairros$code_muni == 1301902, ] 
 
 if (nrow(bairros_itacoatiara) == 0) {
   stop("Não foram encontrados bairros para Itacoatiara-AM")
 }
-```
-
-```{r calculo_distancias}
 coords <- st_centroid(bairros_itacoatiara$geom)
 coords_matrix <- st_coordinates(coords) # Converter para matriz numérica
 
@@ -135,9 +106,7 @@ b4 <- p
 A <- rbind(A1, A2, A3, A4)
 dir <- c(rep("=", n), rep("<=", n * n), rep("<=", n * n), "=")
 b <- c(b1, b2, b3, b4)
-```
 
-```{r resolucao_modelo}
 resultado <- lp("min", obj, A, dir, b, all.bin = TRUE)
 
 # Verificar o status da solução
@@ -167,61 +136,26 @@ if (resultado$status == 0) {
 }
 ```
 
-#P-mediana
+**#P-mediana**
+
+A p-mediana busca minimizar a soma ponderada das distancias entre demanda e instalação, aqui, deve-se garantir que a distancia média para todos os pacientes seja a menor possível. A seguir apresenta-se a formulação matemática da p-mediana de acordo com Pizzolato et al.(2012).
 
 $$
 \tiny
-\text{Minimizar} \quad \sum_{i \in I} \sum_{j \in J} d_{ij} x_{ij}
+\begin{aligned}
+\text{Minimizar} \quad & Z = \sum_{i \in N} \sum_{j \in N} w_i d_{ij} x_{ij} \\
+\text{Sujeito a:} \quad & \sum_{j \in N} x_{ij} = 1, \quad i \in N \quad (1) \\
+& \sum_{j \in N} x_{jj} = p \quad (2) \\
+& x_{ij} \leq x_{jj}, \quad i \in N, j \in N \quad (3) \\
+& x_{ij} \in \{0,1\}, \quad i,j \in N \quad (4) 
+\end{aligned}
 $$
 
-Sujeito a:
+Nesta formulação, a função objetivo (1) representa a minimização das distâncias ponderadas entre os pacientes e instalações; a restrição (2) indica que cada paciente i é alocado a somente uma instalação j; a restrição (3) mostra a instalação que possui um determinado serviço, a restrição (4) garante que um paciente deve ser atendido apenas num local que possui instalação e a restrição (5) representam as variáveis de decisão binárias.
 
-$$
-\tiny
-\sum_{j \in J} x_{ij} = 1 \quad \forall i \in I
-$$
+A seguir observa-se o código baseado em p-mediana,desenvolvido em linguagem R,para definir melhores pontos de instalação de serviços de saúde.
 
-$$
-\tiny
-x_{ij} \leq y_j \quad \forall i \in I, j \in J
-$$
-
-$$
-\tiny
-\sum_{j \in J} y_j = p
-$$
-
-$$
-\tiny
-x_{ij}, y_j \in \{0,1\}
-$$
-
-1. Váriaveis de Decisão
-
-• xij : Variável binária que indica se a instalação i é escolhida como uma mediana. xij = 1 se a instalação i for selecionada, xij = 0 caso contrário.
-
-• yij : Variável binária que indica se a demanda no ponto j é atendida pela instalação i. yij = 1 se a demanda j for atendida pelo centro i, yij = 0 caso contrário.
-
-2. Parâmetros
-
-• I: Conjunto de locais dos clientes, onde i ∈ I.
-
-• J: Conjunto de locais candidatos para instala¸c˜ao das medianas, onde j ∈ J.
-
-• dij : Distância entre o cliente i e o local j.
-
-Função Objetivo
-
-Busca minimizar a soma ponderada das distâncias entre os pontos de demanda e os centros
-
-3. Restrições
- 
-Cada cliente deve ser atendido por exatamente um local
-
-Um cliente s´o pode ser atendido por um local com uma mediana instalada
-
-Exatamente p medianas devem ser instaladas
-``` {r p-mediana}
+``` {r p-mediana, warning=FALSE, message=FALSE}
 library(lpSolve)
 library(geobr)
 library(sf)
@@ -302,44 +236,12 @@ if (resultado$status == 0) {
 }
 ```
 
-#Cobertura de conjuntos
+**#Cobertura de conjuntos**
 
-1 Dados do Problema
-• I: Conjunto de pontos de demanda (clientes), I = {1, 2, . . . , n}.
-
-• J: Conjunto de pontos potenciais para localização dos centros, J = {1, 2, . . . , m}.
-
-• p: Número fixo de centros a serem localizados.
-
-• dij : Distância entre o ponto de demanda i ∈ I e o ponto potencial de centro j ∈ J.
-
-• R: Distância máxima permitida para um cliente ser coberto por um centro.
-
-2. Variáveis de Decisão
-
-• yj : Variável binária que indica se um centro é localizado no ponto j ∈ J (1 se o centro é localizado,0 caso contrário).
-
-• xij : Variável binária que indica se a demanda i ∈ I é atendida pelo centro localizado em j ∈ J (1 se atendido, 0 caso contrário).
-
-3. Função Objetivo
-
-A função objetivo é minimizar o custo total de atendimento:
-
-4. Restrições do Modelo
-
-O modelo de cobertura de conjuntos envolve as seguintes restrições:
-
-Restrição de localização O número total de centros localizados deve ser igual a p:
-
-Cobertura de clientes Cada cliente deve ser atendido por pelo menos um centro dentro da distância R
-
-Vinculação entre designação e localização: Se um cliente i é atendido pelo centro j, então o centro deve estar localizado:
-
-## Modelo Matemático
-
-O modelo pode ser descrito da seguinte forma:
+A cobertura de conjuntos se baseia na determinação de um raio de cobertura. O propósito desse modelo se encontra na minimização de instalações de forma que o máximo de pacientes seja coberto pela área definida. Na formula abaixo é exibido a representação matemática da cobertura de conjuntos apresentada por Toregas et al. (1971).
 
 $$
+\tiny
 \begin{aligned}
 \text{Min } z &= \sum_{j \in N} y_j \quad (1) \\
 \text{s.a. } \quad & \sum_{j \in N} a_{ij} y_j \geq 1, \quad i,j \in N \quad (2) \\
@@ -347,9 +249,11 @@ $$
 \end{aligned}
 $$
 
+Nesta formulação, a função objetivo (1) define a minimização do número de instalações, a restrição (2) indica que um ponto de demanda deve ser atendido por pelo menos uma instalação. A restrição (3) representam as variáveis de decisão que podem assumir somente os valores 0 ou 1.
 
+A seguir observa-se o código baseado em cobertura de conjuntos,desenvolvido em linguagem R,para definir melhores pontos de instalação de serviços de saúde.
 
-```{r cobertura de conjuntos}
+```{r cobertura de conjuntos, warning=FALSE, message=FALSE}
 library(lpSolve)
 library(geobr)
 library(sf)
